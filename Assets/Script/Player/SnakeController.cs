@@ -51,6 +51,11 @@ public struct PathPoint
 /// 
 /// KEY INSIGHT: The snake's "body" is just a visual representation of where 
 /// the head has been. This creates smooth, natural movement patterns.
+/// 
+/// FIXED ISSUES:
+/// - PathPoints now added to END of list (proper chronological order)
+/// - Snake head position tracked separately from body segments
+/// - Rotation properly isolated per segment instead of affecting entire mesh
 /// </summary>
 public class SnakeController : MonoBehaviour
 {
@@ -71,13 +76,19 @@ public class SnakeController : MonoBehaviour
     [Tooltip("How far the head must travel before adding a new body segment. Smaller = smoother body, but more expensive.")]
     public float segmentLength = 0.25f;
 
+    [Tooltip("Maximum length of the snake's body in segments. Prevents infinite growth and performance issues.")]
+    public int maxBodySegments = 100;
+
     // === INTERNAL STATE TRACKING ===
     // These variables track the snake's current state and path history
 
     /// <summary>
     /// Complete history of where the snake's head has been.
-    /// Index 0 = most recent position (head), higher indices = older positions (towards tail)
+    /// Index 0 = oldest position (tail), higher indices = newer positions (towards head)
     /// Each PathPoint contains both position and rotation data for proper mesh generation.
+    /// 
+    /// IMPORTANT: This is the REVERSE of the previous implementation!
+    /// We now add to the END of the list, maintaining proper chronological order.
     /// </summary>
     private List<PathPoint> pathPoints = new List<PathPoint>();
 
@@ -87,6 +98,12 @@ public class SnakeController : MonoBehaviour
     /// This ensures consistent spacing between body segments regardless of framerate.
     /// </summary>
     private float distanceSinceLastSegment = 0f;
+
+    /// <summary>
+    /// The previous position of the snake head, used for distance calculations.
+    /// This allows us to track exactly how far the head has moved each frame.
+    /// </summary>
+    private Vector3 lastRecordedPosition;
 
     // === COMPONENT REFERENCES ===
     // References to other components this script needs to communicate with
@@ -122,7 +139,8 @@ public class SnakeController : MonoBehaviour
     /// 
     /// WHAT HAPPENS HERE:
     /// 1. Create the first PathPoint at the snake's starting position
-    /// 2. Generate the initial mesh so the snake is visible immediately
+    /// 2. Initialize the position tracking system
+    /// 3. Generate the initial mesh so the snake is visible immediately
     /// 
     /// This ensures the snake has a body from the very first frame.
     /// </summary>
@@ -132,9 +150,15 @@ public class SnakeController : MonoBehaviour
         // This becomes the foundation of our path tracking system
         pathPoints.Add(new PathPoint(transform.position, transform.rotation));
 
+        // Initialize our position tracking system
+        lastRecordedPosition = transform.position;
+
         // Immediately generate the initial mesh
         // Even with just one point, SnakeMeshGenerator can handle it gracefully
-        snakeMeshGenerator.BuildMesh(pathPoints);
+        if (snakeMeshGenerator != null)
+        {
+            snakeMeshGenerator.BuildMesh(pathPoints);
+        }
     }
 
     // === MAIN UPDATE LOOP ===
@@ -193,12 +217,15 @@ public class SnakeController : MonoBehaviour
     /// Moves the snake head forward and manages the path tracking system.
     /// 
     /// ALGORITHM OVERVIEW:
-    /// 1. Record current position
-    /// 2. Move snake head forward
-    /// 3. Calculate distance moved this frame
-    /// 4. Add to cumulative distance tracker
-    /// 5. If we've moved far enough, create a new PathPoint
+    /// 1. Move snake head forward
+    /// 2. Calculate distance moved this frame
+    /// 3. Add to cumulative distance tracker
+    /// 4. If we've moved far enough, create a new PathPoint
+    /// 5. Manage body length by removing old segments
     /// 6. Update the visual mesh
+    /// 
+    /// KEY FIX: PathPoints are now added to the END of the list in chronological order.
+    /// This ensures the mesh generator builds the snake body correctly from tail to head.
     /// 
     /// WHY TRACK DISTANCE?
     /// This ensures body segments are evenly spaced regardless of:
@@ -208,38 +235,48 @@ public class SnakeController : MonoBehaviour
     /// </summary>
     private void MoveAndTrackPath()
     {
-        // === STEP 1: RECORD CURRENT POSITION ===
-        // Store where we are before moving (needed for distance calculation)
-        Vector3 oldHeadPosition = transform.position;
-
-        // === STEP 2: MOVE THE SNAKE HEAD ===
+        // === STEP 1: MOVE THE SNAKE HEAD ===
         // Move forward in the direction the snake is facing
         // transform.forward is the local Z-axis direction (blue arrow in Scene view)
         transform.position += transform.forward * moveSpeed * Time.deltaTime;
 
-        // === STEP 3: CALCULATE MOVEMENT DISTANCE ===
-        // Measure how far we actually moved this frame
-        float distanceMoved = Vector3.Distance(oldHeadPosition, transform.position);
+        // === STEP 2: CALCULATE MOVEMENT DISTANCE ===
+        // Measure how far we actually moved since the last recorded position
+        float distanceMoved = Vector3.Distance(lastRecordedPosition, transform.position);
 
         // Add this distance to our cumulative tracker
         distanceSinceLastSegment += distanceMoved;
 
-        // === STEP 4: CHECK IF WE NEED A NEW PATH POINT ===
+        // === STEP 3: CHECK IF WE NEED A NEW PATH POINT ===
         // Have we moved far enough to warrant adding a new body segment?
         if (distanceSinceLastSegment >= segmentLength)
         {
-            // === STEP 5: CREATE NEW PATH POINT ===
-            // Add to the FRONT of the list (index 0) because that's where the head is
-            // Store both current position AND rotation for proper mesh orientation
-            pathPoints.Insert(0, new PathPoint(transform.position, transform.rotation));
+            // === STEP 4: CREATE NEW PATH POINT ===
+            // CRUCIAL FIX: Add to the END of the list (chronological order)
+            // This ensures index 0 = oldest (tail), highest index = newest (head)
+            pathPoints.Add(new PathPoint(transform.position, transform.rotation));
+
+            // Update our position tracking for the next distance calculation
+            lastRecordedPosition = transform.position;
 
             // Reset distance tracker, but keep any "overflow" distance
             // This prevents accumulation errors and maintains consistent spacing
             distanceSinceLastSegment -= segmentLength;
 
+            // === STEP 5: MANAGE BODY LENGTH ===
+            // Remove old segments to prevent infinite growth and maintain performance
+            while (pathPoints.Count > maxBodySegments)
+            {
+                // Remove the oldest segment (index 0 = tail end)
+                pathPoints.RemoveAt(0);
+            }
+
             // === STEP 6: UPDATE VISUAL REPRESENTATION ===
             // Tell the mesh generator to rebuild the snake body with our updated path
-            snakeMeshGenerator.BuildMesh(pathPoints);
+            if (snakeMeshGenerator != null)
+            {
+                snakeMeshGenerator.BuildMesh(pathPoints);
+            }
         }
     }
 
@@ -249,9 +286,10 @@ public class SnakeController : MonoBehaviour
     /// Unity Editor debug function - draws visual helpers in the Scene view.
     /// 
     /// WHAT IT DRAWS:
-    /// - Yellow spheres: Each PathPoint position
+    /// - Green spheres: Each PathPoint position (tail to head gradient)
     /// - Blue rays: Direction each PathPoint is facing (rotation visualization)
     /// - White lines: Connections between consecutive PathPoints
+    /// - Red sphere: Current head position
     /// 
     /// HOW TO VIEW:
     /// 1. Select this GameObject in the Hierarchy
@@ -262,6 +300,7 @@ public class SnakeController : MonoBehaviour
     /// - If spheres are too close together: Increase segmentLength
     /// - If blue rays point wrong direction: Check rotation calculations
     /// - If lines are jagged: Snake might be moving too fast or turning too sharply
+    /// - Green spheres should get brighter from tail to head
     /// </summary>
     void OnDrawGizmos()
     {
@@ -273,8 +312,10 @@ public class SnakeController : MonoBehaviour
             {
                 PathPoint currentPoint = pathPoints[i];
 
-                // === DRAW POSITION MARKER ===
-                Gizmos.color = Color.yellow;
+                // === DRAW POSITION MARKER WITH GRADIENT ===
+                // Color gradient from dark green (tail) to bright green (head)
+                float t = pathPoints.Count > 1 ? (float)i / (pathPoints.Count - 1) : 1f;
+                Gizmos.color = Color.Lerp(new Color(0, 0.3f, 0), Color.green, t);
                 Gizmos.DrawSphere(currentPoint.position, 0.1f);
 
                 // === DRAW DIRECTION INDICATOR ===
@@ -292,5 +333,10 @@ public class SnakeController : MonoBehaviour
                 }
             }
         }
+
+        // === DRAW CURRENT HEAD POSITION ===
+        // Show where the actual snake head is right now
+        Gizmos.color = Color.red;
+        Gizmos.DrawSphere(transform.position, 0.15f);
     }
 }
