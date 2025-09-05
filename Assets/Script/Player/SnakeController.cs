@@ -1,6 +1,21 @@
 using UnityEngine;
 using System.Collections.Generic;
 
+// A custom data structure (struct) to hold all the necessary data for a single
+// point in our snake's path. This is much more powerful than just a Vector3.
+public struct PathPoint
+{
+    public Vector3 position;
+    public Quaternion rotation;
+
+    // A "constructor" to make creating new points cleaner.
+    public PathPoint(Vector3 pos, Quaternion rot)
+    {
+        position = pos;
+        rotation = rot;
+    }
+}
+
 public class SnakeController : MonoBehaviour
 {
     // --- PUBLIC SETTINGS ---
@@ -18,15 +33,14 @@ public class SnakeController : MonoBehaviour
     public float segmentLength = 0.25f;
 
     // --- PRIVATE VARIABLES ---
-
-    // This list will store the positions of our snake's body segments, from head to tail.
-    private List<Vector3> pathPoints = new List<Vector3>();
+    // This list will store our custom PathPoint struct of our snake's body segments, from head to tail.
+    private List<PathPoint> pathPoints = new List<PathPoint>();
     // This tracks the distance the head has moved since the last point was added.
     private float distanceSinceLastSegment = 0f;
 
 
 
-     // A reference to our new mesh generator script.
+    // A reference to our new mesh generator script.
     private SnakeMeshGenerator snakeMeshGenerator;
 
     // Use Awake() for getting component references. It's called before Start().
@@ -40,8 +54,8 @@ public class SnakeController : MonoBehaviour
     void Start()
     {
         // When the game starts, we need to create an initial body.
-        // We will add the head's starting position to the path.
-        pathPoints.Add(transform.position);
+        // We will add the head's starting position and rotation to the path.
+        pathPoints.Add(new PathPoint(transform.position, transform.rotation));
         // Immediately build the initial mesh when the game starts.
         snakeMeshGenerator.BuildMesh(pathPoints);
     }
@@ -94,7 +108,8 @@ public class SnakeController : MonoBehaviour
         {
             // If it has, add a new point to the beginning of our path list.
             // We use Insert(0, ...) to add to the front, because this is where the head is.
-            pathPoints.Insert(0, transform.position);
+            // When adding a new point, we now also store the head's current rotation.
+            pathPoints.Insert(0, new PathPoint(transform.position, transform.rotation));
 
             // Reset the distance tracker. We subtract segmentLength instead of setting to 0
             // to carry over any extra distance. This makes segment spacing more accurate.
@@ -120,13 +135,19 @@ public class SnakeController : MonoBehaviour
                 // Set the color of the Gizmo.
                 Gizmos.color = Color.yellow;
                 // Draw a small sphere at each path point.
-                Gizmos.DrawSphere(pathPoints[i], 0.1f);
+                // We now get the position from our struct.
+                Gizmos.DrawSphere(pathPoints[i].position, 0.1f);
+
+                // Let's also draw a blue line showing the stored "forward" direction for each point.
+                // This will help us confirm the rotation data is correct.
+                Gizmos.color = Color.blue;
+                Gizmos.DrawRay(pathPoints[i].position, pathPoints[i].rotation * Vector3.forward * 0.5f);
 
                 // If it's not the last point in the list, draw a line to the next one.
                 if (i < pathPoints.Count - 1)
                 {
                     Gizmos.color = Color.white;
-                    Gizmos.DrawLine(pathPoints[i], pathPoints[i + 1]);
+                    Gizmos.DrawLine(pathPoints[i].position, pathPoints[i + 1].position);
                 }
             }
         }

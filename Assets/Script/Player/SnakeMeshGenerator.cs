@@ -1,148 +1,177 @@
 using UnityEngine;
 using System.Collections.Generic;
 
-// This script now requires the components needed for rendering a mesh.
+/// <summary>
+/// Generates a procedural 3D mesh for a snake's body using a series of path points.
+/// Creates a tubular mesh by generating circular cross-sections along the snake's path
+/// and connecting them with triangles to form a smooth, continuous body.
+/// 
+/// This component requires a MeshFilter and MeshRenderer to display the generated mesh.
+/// The snake's body is built from PathPoint data that includes both position and rotation
+/// information, allowing for proper orientation along curved paths.
+/// </summary>
 [RequireComponent(typeof(MeshFilter), typeof(MeshRenderer))]
 public class SnakeMeshGenerator : MonoBehaviour
 {
+    // === CONFIGURATION SETTINGS ===
+    // These parameters control the visual appearance and quality of the snake mesh
+
     [Header("Mesh Settings")]
-    [Tooltip("The radius of the snake's body.")]
-    [Range(0.01f, 2f)] // A slider makes it easy to adjust in the Inspector.
+    [Tooltip("The radius of the snake's body. Larger values create a thicker snake.")]
+    [Range(0.01f, 2f)]
     public float radius = 0.5f;
 
-    [Tooltip("The number of vertices that make up the circular cross-section of the body.")]
-    [Range(3, 32)] // A snake body needs at least 3 sides (a triangle).
+    [Tooltip("The number of vertices that make up the circular cross-section of the body. Higher values = smoother curves but more expensive.")]
+    [Range(3, 32)]
     public int crossSectionResolution = 8;
 
-    // --- Private Mesh Data ---
-    private Mesh mesh;
-    // These lists will store the calculated data for our mesh.
-    private List<Vector3> vertices = new List<Vector3>();
-    private List<int> triangles = new List<int>();
-    private List<Vector2> uvs = new List<Vector2>(); // For textures later.
+    // === MESH DATA STORAGE ===
+    // These hold the actual mesh data that gets sent to Unity's rendering system
 
-    // --- Component References ---
-    // A reference to the MeshFilter component on this GameObject.
+    /// <summary>The Unity Mesh object that will be rendered</summary>
+    private Mesh mesh;
+
+    /// <summary>List of all vertex positions in world space</summary>
+    private List<Vector3> vertices = new List<Vector3>();
+
+    /// <summary>List of triangle indices that define which vertices form triangles</summary>
+    private List<int> triangles = new List<int>();
+
+    /// <summary>UV coordinates for texture mapping (currently unused but prepared for future texturing)</summary>
+    private List<Vector2> uvs = new List<Vector2>();
+
+    /// <summary>Reference to the MeshFilter component that displays our generated mesh</summary>
     private MeshFilter meshFilter;
 
-
     /// <summary>
-    /// Awake is called when the script instance is being loaded.
-    /// It's the ideal place to get references to other components.
+    /// Initialize the mesh system when the GameObject is created.
+    /// This runs before Start() and ensures our mesh is ready to use.
     /// </summary>
     void Awake()
     {
-        // Get the MeshFilter component.
+        // Get the required MeshFilter component (guaranteed to exist due to RequireComponent)
         meshFilter = GetComponent<MeshFilter>();
 
-        // Create a new Mesh object and assign it to the MeshFilter.
-        // This mesh is currently empty, but we now have a place to put our generated data.
+        // Create a new empty mesh and give it a descriptive name for debugging
         mesh = new Mesh();
         mesh.name = "Snake Body Mesh";
+
+        // Assign our mesh to the MeshFilter so Unity can render it
         meshFilter.mesh = mesh;
     }
 
+    // === MAIN MESH GENERATION FUNCTION ===
+
     /// <summary>
-    /// This is the main public function that will be called by the SnakeController.
-    /// It takes the snake's path data and generates the 3D mesh from it.
+    /// Builds the complete snake mesh from a series of path points.
+    /// 
+    /// ALGORITHM OVERVIEW:
+    /// 1. For each PathPoint, generate a circular ring of vertices
+    /// 2. Connect adjacent rings with triangles to form a tube
+    /// 3. Update the Unity mesh with the new geometry
+    /// 
+    /// PathPoint struct should contain:
+    /// - Vector3 position: Where this segment of the snake is located
+    /// - Quaternion rotation: How this segment is oriented (handles curves and turns)
     /// </summary>
-    /// <param name="pathPoints">The list of points representing the snake's spine.</param>
-    public void BuildMesh(List<Vector3> pathPoints)
+    /// <param name="pathPoints">List of points defining the snake's path and orientation</param>
+    public void BuildMesh(List<PathPoint> pathPoints)
     {
-        // If we have fewer than 2 points, we can't form a body segment.
+        // Safety check: Need at least 2 points to create any geometry
         if (pathPoints.Count < 2)
         {
-            mesh.Clear(); // Clear the mesh if the snake is too short.
+            mesh.Clear(); // Clear any existing mesh data
             return;
         }
 
-        // --- Step 1: Clear old data ---
+        // Clear previous mesh data - we rebuild everything each frame
         vertices.Clear();
         triangles.Clear();
-        // uvs.Clear(); // We'll handle UVs for textures in a later phase.
 
-        // --- Step 2 & 3: Generate Vertices for each path point ---
-        // Loop through the path, creating a ring of vertices at each point.
+        // === STEP 1: GENERATE VERTEX RINGS ===
+        // Create a circular ring of vertices at each path point
+        // Each ring will have 'crossSectionResolution' number of vertices
         for (int i = 0; i < pathPoints.Count; i++)
         {
-            Vector3 currentPoint = pathPoints[i];
-
-            // Determine the direction of this segment.
-            // If it's the first point, it looks towards the next one.
-            // Otherwise, it looks backwards from the previous one for a smoother transition.
-            Vector3 direction = (i < pathPoints.Count - 1) ? (pathPoints[i + 1] - currentPoint).normalized : (currentPoint - pathPoints[i - 1]).normalized;
-
-            // Generate one ring of vertices.
-            GenerateRing(currentPoint, direction);
+            // Generate a ring using the stored position and rotation from PathPoint
+            // No need to calculate direction - PathPoint already contains the correct orientation
+            GenerateRing(pathPoints[i].position, pathPoints[i].rotation);
         }
 
-        // --- Step 4: Generate Triangles to connect the rings ---
-        // We loop through the segments of the snake body. A segment is the space between two path points.
+        // === STEP 2: CONNECT RINGS WITH TRIANGLES ===
+        // Connect each pair of adjacent rings to form the tube surface
         for (int i = 0; i < pathPoints.Count - 1; i++)
         {
-            // Each ring has 'crossSectionResolution' number of vertices.
-            // The index of the first vertex of the current ring is (i * crossSectionResolution).
+            // Calculate the starting index for vertices in each ring
             int currentRingStartIndex = i * crossSectionResolution;
-            // The index of the first vertex of the next ring.
             int nextRingStartIndex = (i + 1) * crossSectionResolution;
 
-            // Loop through the vertices of the current ring.
+            // For each segment of the ring, create 2 triangles (forming a quad)
             for (int j = 0; j < crossSectionResolution; j++)
             {
-                // Find the indices of the four vertices that form a quad.
-                int a = currentRingStartIndex + j;
-                int b = currentRingStartIndex + (j + 1) % crossSectionResolution; // Use modulo to wrap around the last vertex.
-                int c = nextRingStartIndex + j;
-                int d = nextRingStartIndex + (j + 1) % crossSectionResolution;
+                // Get the 4 vertices that form this quad segment
+                int a = currentRingStartIndex + j;                              // Current ring, current vertex
+                int b = currentRingStartIndex + (j + 1) % crossSectionResolution; // Current ring, next vertex (wraps around)
+                int c = nextRingStartIndex + j;                                 // Next ring, current vertex
+                int d = nextRingStartIndex + (j + 1) % crossSectionResolution;    // Next ring, next vertex (wraps around)
 
-                // Create the two triangles that form the quad.
-                // Triangle 1: (a, d, c)
+                // Create two triangles to form a quad
+                // Triangle 1: a -> d -> c (counter-clockwise for correct normals)
                 triangles.Add(a);
                 triangles.Add(d);
                 triangles.Add(c);
 
-                // Triangle 2: (a, b, d)
+                // Triangle 2: a -> b -> d
                 triangles.Add(a);
                 triangles.Add(b);
                 triangles.Add(d);
             }
         }
 
-        // --- Step 5: Apply the data to the mesh ---
-        mesh.Clear(); // Clear any existing mesh data.
-        mesh.vertices = vertices.ToArray();
-        mesh.triangles = triangles.ToArray();
-
-        // RecalculateNormals is crucial for lighting. It calculates how light should
-        // bounce off the surface, otherwise the mesh will look flat or black.
-        mesh.RecalculateNormals();
+        // === STEP 3: UPDATE UNITY MESH ===
+        mesh.Clear();                           // Remove old data
+        mesh.vertices = vertices.ToArray();     // Set new vertex positions
+        mesh.triangles = triangles.ToArray();   // Set new triangle connectivity
+        mesh.RecalculateNormals();              // Let Unity calculate surface normals for lighting
     }
 
+    // === HELPER FUNCTION FOR VERTEX GENERATION ===
+
     /// <summary>
-    /// Generates a ring of vertices at a specific point along the path.
+    /// Generates a circular ring of vertices at a specific position and orientation.
+    /// 
+    /// HOW IT WORKS:
+    /// 1. Create a circle of points in local space (XY plane, radius distance from origin)
+    /// 2. Apply the provided rotation to orient the circle correctly
+    /// 3. Translate to the final world position
+    /// 
+    /// This creates the cross-sectional shape of the snake at each path point.
     /// </summary>
-    /// <param name="position">The center of the ring.</param>
-    /// <param name="direction">The forward direction of the snake at this point.</param>
-    private void GenerateRing(Vector3 position, Vector3 direction)
+    /// <param name="position">World space position where the ring should be placed</param>
+    /// <param name="rotation">Rotation that orients the ring (typically points along the snake's direction)</param>
+    private void GenerateRing(Vector3 position, Quaternion rotation)
     {
-        // To create a circle of vertices, we need an "up" and a "right" direction
-        // that are perpendicular to the "forward" direction.
-
-        // This calculates the orientation of the ring.
-        Quaternion rotation = Quaternion.LookRotation(direction, Vector3.up);
-
-        // Loop to create each vertex in the ring.
+        // Generate vertices around a circle in the XY plane
         for (int i = 0; i < crossSectionResolution; i++)
         {
-            // Calculate the angle for this vertex.
+            // Calculate angle for this vertex (evenly distributed around the circle)
             float angle = 2 * Mathf.PI * i / crossSectionResolution;
 
-            // Find the point on a 2D circle using Sin and Cos.
-            // Note: We use (y, z) or (x, y) depending on the orientation we want. (Cos(angle), Sin(angle)) is standard.
-            Vector3 circlePoint = new Vector3(Mathf.Cos(angle), Mathf.Sin(angle), 0) * radius;
+            // Create a point on the circle in local space
+            // Z=0 means the circle lies in the XY plane initially
+            Vector3 circlePoint = new Vector3(
+                Mathf.Cos(angle) * radius,  // X position on circle
+                Mathf.Sin(angle) * radius,  // Y position on circle
+                0                           // Z is 0 (flat circle in XY plane)
+            );
 
-            // Rotate the circle point to align with the snake's direction and add it to the vertices list.
-            vertices.Add(position + rotation * circlePoint);
+            // Transform the local circle point to world space:
+            // 1. Apply rotation to orient the circle correctly
+            // 2. Add position to place it in the world
+            Vector3 worldVertex = position + rotation * circlePoint;
+
+            // Add to our vertex list
+            vertices.Add(worldVertex);
         }
     }
 }
