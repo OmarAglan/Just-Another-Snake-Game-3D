@@ -134,7 +134,7 @@ public class SnakeController : MonoBehaviour
         // NOTE: If this fails, make sure SnakeMeshGenerator is attached to the same GameObject!
     }
 
-    /// <summary>
+    // <summary>
     /// Perform initial setup when the game begins.
     /// 
     /// WHAT HAPPENS HERE:
@@ -142,7 +142,8 @@ public class SnakeController : MonoBehaviour
     /// 2. Initialize the position tracking system
     /// 3. Generate the initial mesh so the snake is visible immediately
     /// 
-    /// This ensures the snake has a body from the very first frame.
+    /// This ensures the snake has a body from the very first frame and
+    /// connects properly to the head from the start.
     /// </summary>
     void Start()
     {
@@ -153,11 +154,13 @@ public class SnakeController : MonoBehaviour
         // Initialize our position tracking system
         lastRecordedPosition = transform.position;
 
-        // Immediately generate the initial mesh
-        // Even with just one point, SnakeMeshGenerator can handle it gracefully
+        // Generate the initial mesh with current head position included
+        // This ensures immediate connectivity between body and head
         if (snakeMeshGenerator != null)
         {
-            snakeMeshGenerator.BuildMesh(pathPoints);
+            List<PathPoint> initialPathWithHead = new List<PathPoint>(pathPoints);
+            initialPathWithHead.Add(new PathPoint(transform.position, transform.rotation));
+            snakeMeshGenerator.BuildMesh(initialPathWithHead);
         }
     }
 
@@ -222,10 +225,11 @@ public class SnakeController : MonoBehaviour
     /// 3. Add to cumulative distance tracker
     /// 4. If we've moved far enough, create a new PathPoint
     /// 5. Manage body length by removing old segments
-    /// 6. Update the visual mesh
+    /// 6. ALWAYS include current head position in mesh generation
+    /// 7. Update the visual mesh
     /// 
-    /// KEY FIX: PathPoints are now added to the END of the list in chronological order.
-    /// This ensures the mesh generator builds the snake body correctly from tail to head.
+    /// KEY FIX: The mesh now ALWAYS connects to the current head position,
+    /// preventing gaps between the body and the moving head.
     /// 
     /// WHY TRACK DISTANCE?
     /// This ensures body segments are evenly spaced regardless of:
@@ -254,7 +258,7 @@ public class SnakeController : MonoBehaviour
             // === STEP 4: CREATE NEW PATH POINT ===
             // CRUCIAL FIX: Add to the END of the list (chronological order)
             // This ensures index 0 = oldest (tail), highest index = newest (head)
-            pathPoints.Add(new PathPoint(transform.position, transform.rotation));
+            pathPoints.Add(new PathPoint(lastRecordedPosition, transform.rotation));
 
             // Update our position tracking for the next distance calculation
             lastRecordedPosition = transform.position;
@@ -270,13 +274,22 @@ public class SnakeController : MonoBehaviour
                 // Remove the oldest segment (index 0 = tail end)
                 pathPoints.RemoveAt(0);
             }
+        }
 
-            // === STEP 6: UPDATE VISUAL REPRESENTATION ===
-            // Tell the mesh generator to rebuild the snake body with our updated path
-            if (snakeMeshGenerator != null)
-            {
-                snakeMeshGenerator.BuildMesh(pathPoints);
-            }
+        // === STEP 6: CREATE CURRENT HEAD PATH POINTS ===
+        // CRITICAL FIX: Always include the current head position in the mesh
+        // This ensures the snake body connects seamlessly to the moving head
+        List<PathPoint> currentPathWithHead = new List<PathPoint>(pathPoints);
+        
+        // Add the current head position as the newest path point
+        // This creates a seamless connection from body to head
+        currentPathWithHead.Add(new PathPoint(transform.position, transform.rotation));
+
+        // === STEP 7: UPDATE VISUAL REPRESENTATION ===
+        // Tell the mesh generator to rebuild the snake body with current head included
+        if (snakeMeshGenerator != null)
+        {
+            snakeMeshGenerator.BuildMesh(currentPathWithHead);
         }
     }
 
@@ -290,6 +303,7 @@ public class SnakeController : MonoBehaviour
     /// - Blue rays: Direction each PathPoint is facing (rotation visualization)
     /// - White lines: Connections between consecutive PathPoints
     /// - Red sphere: Current head position
+    /// - Yellow line: Connection from last path point to current head
     /// 
     /// HOW TO VIEW:
     /// 1. Select this GameObject in the Hierarchy
@@ -301,6 +315,7 @@ public class SnakeController : MonoBehaviour
     /// - If blue rays point wrong direction: Check rotation calculations
     /// - If lines are jagged: Snake might be moving too fast or turning too sharply
     /// - Green spheres should get brighter from tail to head
+    /// - Yellow line should always connect the body to the red head sphere
     /// </summary>
     void OnDrawGizmos()
     {
@@ -332,11 +347,24 @@ public class SnakeController : MonoBehaviour
                     Gizmos.DrawLine(currentPoint.position, pathPoints[i + 1].position);
                 }
             }
+
+            // === DRAW CONNECTION TO CURRENT HEAD ===
+            // Show the critical connection from last path point to current head position
+            if (pathPoints.Count > 0)
+            {
+                Gizmos.color = Color.yellow;
+                Gizmos.DrawLine(pathPoints[pathPoints.Count - 1].position, transform.position);
+            }
         }
 
         // === DRAW CURRENT HEAD POSITION ===
         // Show where the actual snake head is right now
         Gizmos.color = Color.red;
         Gizmos.DrawSphere(transform.position, 0.15f);
+
+        // === DRAW HEAD DIRECTION ===
+        // Show which way the head is facing
+        Gizmos.color = Color.cyan;
+        Gizmos.DrawRay(transform.position, transform.forward * 1f);
     }
 }
