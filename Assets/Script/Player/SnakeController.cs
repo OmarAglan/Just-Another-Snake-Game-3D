@@ -1,9 +1,6 @@
 using UnityEngine;
 using System.Collections.Generic;
 
-// This directive ensures that the GameObject this script is on
-// also has a MeshFilter and MeshRenderer component. We'll need these later.
-[RequireComponent(typeof(MeshFilter), typeof(MeshRenderer))]
 public class SnakeController : MonoBehaviour
 {
     // --- PUBLIC SETTINGS ---
@@ -28,12 +25,25 @@ public class SnakeController : MonoBehaviour
     private float distanceSinceLastSegment = 0f;
 
 
+
+     // A reference to our new mesh generator script.
+    private SnakeMeshGenerator snakeMeshGenerator;
+
+    // Use Awake() for getting component references. It's called before Start().
+    void Awake()
+    {
+        // Get the SnakeMeshGenerator component that is on the same GameObject.
+        snakeMeshGenerator = GetComponent<SnakeMeshGenerator>();
+    }
+
     // The Start() method is called once when the script instance is being loaded.
     void Start()
     {
         // When the game starts, we need to create an initial body.
         // We will add the head's starting position to the path.
         pathPoints.Add(transform.position);
+        // Immediately build the initial mesh when the game starts.
+        snakeMeshGenerator.BuildMesh(pathPoints);
     }
 
     // The Update() method is called once per frame. It's the ideal place for movement logic.
@@ -89,6 +99,9 @@ public class SnakeController : MonoBehaviour
             // Reset the distance tracker. We subtract segmentLength instead of setting to 0
             // to carry over any extra distance. This makes segment spacing more accurate.
             distanceSinceLastSegment -= segmentLength;
+
+            // After we update the path, tell the mesh generator to rebuild the mesh.
+            snakeMeshGenerator.BuildMesh(pathPoints);
         }
     }
 
