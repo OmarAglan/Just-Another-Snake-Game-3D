@@ -243,7 +243,8 @@ MonoBehaviour:
   m_EditorClassIdentifier: 
   moveSpeed: 5
   turnSpeed: 180
-  segmentLength: 0.25
+  segmentLength: 0.1
+  maxBodySegments: 100
 --- !u!114 &458923020
 MonoBehaviour:
   m_ObjectHideFlags: 0
@@ -257,7 +258,9 @@ MonoBehaviour:
   m_Name: 
   m_EditorClassIdentifier: 
   radius: 0.5
-  crossSectionResolution: 8
+  crossSectionResolution: 15
+  enableTapering: 1
+  tailRadiusMultiplier: 0.3
 --- !u!1 &845128240
 GameObject:
   m_ObjectHideFlags: 0
