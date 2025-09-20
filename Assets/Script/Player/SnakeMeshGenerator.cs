@@ -95,26 +95,34 @@ public class SnakeMeshGenerator : MonoBehaviour
     }
 
     private void GenerateRing(Vector3 position, Quaternion rotation, float ringRadius)
+{
+    // Check if this is near the head (last few rings)
+    int totalRings = vertices.Count / crossSectionResolution;
+    int maxRings = pathPoints?.Count ?? 0;
+    bool isNearHead = maxRings > 0 && totalRings >= maxRings - 3;
+    
+    // Make the head area slightly larger
+    float headBulge = isNearHead ? 1.2f : 1.0f;
+    float actualRadius = ringRadius * headBulge;
+    
+    for (int i = 0; i < crossSectionResolution; i++)
     {
-        for (int i = 0; i < crossSectionResolution; i++)
-        {
-            float angle = 2 * Mathf.PI * i / crossSectionResolution;
-            
-            Vector3 circlePoint = new Vector3(
-                Mathf.Cos(angle) * ringRadius,
-                Mathf.Sin(angle) * ringRadius,
-                0
-            );
-            
-            // Now in local space, not world space
-            Vector3 localVertex = position + rotation * circlePoint;
-            vertices.Add(localVertex);
-            
-            float u = (float)i / crossSectionResolution;
-            float v = (float)(vertices.Count / crossSectionResolution) / Mathf.Max(1, vertices.Count / crossSectionResolution);
-            uvs.Add(new Vector2(u, v));
-        }
+        float angle = 2 * Mathf.PI * i / crossSectionResolution;
+        
+        Vector3 circlePoint = new Vector3(
+            Mathf.Cos(angle) * actualRadius,
+            Mathf.Sin(angle) * actualRadius,
+            0
+        );
+        
+        Vector3 localVertex = position + rotation * circlePoint;
+        vertices.Add(localVertex);
+        
+        float u = (float)i / crossSectionResolution;
+        float v = (float)(vertices.Count / crossSectionResolution) / Mathf.Max(1, vertices.Count / crossSectionResolution);
+        uvs.Add(new Vector2(u, v));
     }
+}
 
     private void ConnectRings(int ringIndex1, int ringIndex2)
     {
